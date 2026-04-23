@@ -15,7 +15,7 @@ def _get_secret(key: str, default: str = "") -> str:
 
 def generate(prompt: str, system: str = "") -> str:
     api_key = _get_secret("GROQ_API_KEY")
-    model = _get_secret("GROQ_MODEL", "llama3-8b-8192")
+    model = _get_secret("GROQ_MODEL", "llama-3.1-8b-instant")
 
     if not api_key:
         return (

@@ -1,3 +1,6 @@
+from dotenv import load_dotenv
+load_dotenv(override=True)
+
 import streamlit as st
 import pandas as pd
 from services.db_service import init_db, save_vendor, get_all_vendors
@@ -42,33 +45,38 @@ if "vendor_draft" not in st.session_state:
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
-def detect_column(columns, keywords):
-    for col in columns:
-        if any(kw in col.lower() for kw in keywords):
-            return col
-    return None
 
-
-def bulk_import(df, name_col, phone_col, company_col, rate_col):
+def bulk_import(df: pd.DataFrame) -> int:
     count = 0
     for _, row in df.iterrows():
-        name = str(row[name_col]).strip()
-        if not name or name.lower() == "nan":
+        fields = {
+            col: str(row[col]).strip()
+            for col in df.columns
+            if str(row[col]).strip() and str(row[col]).strip().lower() != "nan"
+        }
+        if not fields:
             continue
-        vid = save_vendor(
-            name,
-            str(row[phone_col]).strip(),
-            str(row[company_col]).strip(),
-            str(row[rate_col]).strip(),
-        )
-        retrieval.index_vendor(
-            vid, name,
-            str(row[phone_col]).strip(),
-            str(row[company_col]).strip(),
-            str(row[rate_col]).strip(),
-        )
+        vid = save_vendor(fields)
+        retrieval.index_vendor(vid, fields)
         count += 1
     return count
+
+
+def _vendors_dataframe(vendors: list[dict]) -> pd.DataFrame:
+    """Build a DataFrame from vendors with varying fields, putting id first and created_at last."""
+    if not vendors:
+        return pd.DataFrame()
+    skip = {"id", "created_at"}
+    field_keys = []
+    for v in vendors:
+        for k in v:
+            if k not in skip and k not in field_keys:
+                field_keys.append(k)
+    cols = ["id"] + field_keys + ["created_at"]
+    rows = [{c: v.get(c, "") for c in cols} for v in vendors]
+    df = pd.DataFrame(rows, columns=cols)
+    df["created_at"] = pd.to_datetime(df["created_at"], errors="coerce").dt.strftime("%Y-%m-%d")
+    return df
 
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
@@ -80,10 +88,7 @@ with st.sidebar:
     else:
         vendors = get_all_vendors()
         if vendors:
-            df_v = pd.DataFrame(vendors)[["id", "name", "company_name", "phone", "rate", "created_at"]]
-            df_v.columns = ["ID", "Name", "Company", "Phone", "Rate", "Added"]
-            df_v["Added"] = pd.to_datetime(df_v["Added"]).dt.strftime("%Y-%m-%d")
-            st.dataframe(df_v, use_container_width=True, hide_index=True)
+            st.dataframe(_vendors_dataframe(vendors), use_container_width=True, hide_index=True)
             st.caption(f"Total: {len(vendors)} vendor(s)")
         else:
             st.info("No vendors yet.")
@@ -95,7 +100,7 @@ with st.sidebar:
     uploaded_file = st.file_uploader(
         "Upload CSV or Excel",
         type=["csv", "xlsx", "xls"],
-        help="Must have columns for name, phone, company, and rate.",
+        help="All columns are imported automatically — no mapping needed.",
     )
     if uploaded_file is not None:
         try:
@@ -104,24 +109,12 @@ with st.sidebar:
             else:
                 df_upload = pd.read_excel(uploaded_file)
 
-            st.caption(f"Preview: {len(df_upload)} rows")
+            st.caption(f"Preview: {len(df_upload)} rows · {len(df_upload.columns)} columns")
             st.dataframe(df_upload.head(5), use_container_width=True, hide_index=True)
-            cols = df_upload.columns.tolist()
-
-            auto_name    = detect_column(cols, ["name", "vendor"])
-            auto_phone   = detect_column(cols, ["phone", "mobile", "contact", "tel"])
-            auto_company = detect_column(cols, ["company", "org", "firm", "business"])
-            auto_rate    = detect_column(cols, ["rate", "price", "cost", "fee", "amount"])
-
-            st.markdown("**Map columns:**")
-            name_col    = st.selectbox("Name",    cols, index=cols.index(auto_name)    if auto_name    else 0)
-            phone_col   = st.selectbox("Phone",   cols, index=cols.index(auto_phone)   if auto_phone   else 0)
-            company_col = st.selectbox("Company", cols, index=cols.index(auto_company) if auto_company else 0)
-            rate_col    = st.selectbox("Rate",    cols, index=cols.index(auto_rate)    if auto_rate    else 0)
 
             if st.button("Import Vendors", type="primary"):
                 with st.spinner("Importing..."):
-                    n = bulk_import(df_upload, name_col, phone_col, company_col, rate_col)
+                    n = bulk_import(df_upload)
                 st.success(f"Imported {n} vendor(s)!")
                 st.rerun()
         except Exception as e:
@@ -174,28 +167,20 @@ def process_input(user_input):
     if step == "rate":
         draft["rate"] = text
         st.session_state.step = "confirm"
+        summary = "\n".join(f"| {k} | {v} |" for k, v in draft.items())
         return (
             "Here is a summary:\n\n"
-            f"| Field | Value |\n|---|---|\n"
-            f"| Name | {draft['name']} |\n"
-            f"| Phone | {draft['phone']} |\n"
-            f"| Company | {draft['company_name']} |\n"
-            f"| Rate | {draft['rate']} |\n\n"
+            f"| Field | Value |\n|---|---|\n{summary}\n\n"
             "Type **yes** to save or **no** to cancel."
         )
 
     if step == "confirm":
         if lower in ("yes", "y", "confirm", "save", "ok", "sure"):
-            vid = save_vendor(
-                draft["name"], draft["phone"], draft["company_name"], draft["rate"]
-            )
-            retrieval.index_vendor(
-                vid, draft["name"], draft["phone"],
-                draft["company_name"], draft["rate"],
-            )
+            vid = save_vendor(draft)
+            retrieval.index_vendor(vid, draft)
             st.session_state.step = None
             st.session_state.vendor_draft = {}
-            return f"Vendor **{draft['name']}** saved! (ID: {vid})"
+            return f"Vendor **{draft.get('name', vid)}** saved! (ID: {vid})"
         if lower in ("no", "n", "cancel", "abort"):
             st.session_state.step = None
             st.session_state.vendor_draft = {}
@@ -214,10 +199,12 @@ def process_input(user_input):
         vendors = get_all_vendors()
         if not vendors:
             return "No vendors yet. Say **add vendor** or upload a file from the sidebar."
-        lines = [
-            f"{i}. **{v['name']}** | {v['company_name']} | {v['phone']} | {v['rate']}"
-            for i, v in enumerate(vendors, 1)
-        ]
+        lines = []
+        for i, v in enumerate(vendors, 1):
+            detail = " | ".join(
+                f"{k}: {v[k]}" for k in v if k not in ("id", "created_at") and v[k]
+            )
+            lines.append(f"{i}. {detail}")
         return "**All vendors:**\n\n" + "\n".join(lines)
 
     if any(k in lower for k in ["help", "what can you do", "how do i"]):
@@ -225,7 +212,7 @@ def process_input(user_input):
             "Here is what I can do:\n\n"
             "- **Add vendor**: Say *add vendor*\n"
             "- **View vendors**: Say *show all vendors*\n"
-            "- **Bulk upload**: Use the sidebar file uploader (CSV or Excel)\n"
+            "- **Bulk upload**: Use the sidebar file uploader (CSV or Excel) — all columns imported automatically\n"
             "- **Ask questions**: e.g., *Who has the lowest rate?*"
         )
 

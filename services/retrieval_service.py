@@ -7,8 +7,8 @@ class RetrievalService:
     def __init__(self):
         self.embedding_service = EmbeddingService()
 
-    def index_vendor(self, vendor_id: int, name: str, phone: str, company_name: str, rate: str):
-        text = f"Name: {name}, Phone: {phone}, Company: {company_name}, Rate: {rate}"
+    def index_vendor(self, vendor_id: int, fields: dict):
+        text = ", ".join(f"{k}: {v}" for k, v in fields.items() if v)
         embedding = self.embedding_service.embed_text(text)
         update_embedding(vendor_id, embedding)
 
@@ -23,8 +23,7 @@ class RetrievalService:
             )
 
         context = "\n".join(
-            f"Name: {r['name']}, Phone: {r['phone']}, "
-            f"Company: {r['company_name']}, Rate: {r['rate']}"
+            ", ".join(f"{k}: {v}" for k, v in r.items() if k not in ("id", "created_at", "distance") and v)
             for r in results
         )
         system = (
