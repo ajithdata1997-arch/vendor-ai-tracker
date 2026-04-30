@@ -76,6 +76,11 @@ def _pg_has_fields_column(conn) -> bool:
         return cur.fetchone() is not None
 
 
+def get_backend() -> str:
+    """Return 'pg' or 'sqlite' — lets the UI warn when using local SQLite."""
+    return _detect_backend()
+
+
 # ── Public API ─────────────────────────────────────────────────────────────────
 
 def init_db():

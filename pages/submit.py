@@ -2,16 +2,22 @@ from dotenv import load_dotenv
 load_dotenv(override=True)
 
 import streamlit as st
-from services.db_service import init_db, save_vendor
+from services.db_service import init_db, save_vendor, get_backend
 from services.retrieval_service import RetrievalService
 
 st.set_page_config(page_title="Submit a Vendor", page_icon="📋", layout="centered")
 
-try:
+@st.cache_resource
+def _init_db():
     init_db()
+    return get_backend()
+
+try:
+    _backend = _init_db()
     db_ok = True
 except Exception as e:
     db_ok = False
+    _backend = "unknown"
     db_error = str(e)
 
 
@@ -28,6 +34,13 @@ st.divider()
 if not db_ok:
     st.error(f"Database not available: {db_error}")
     st.stop()
+
+if _backend == "sqlite":
+    st.warning(
+        "**Local database active.** Submissions are stored only on this machine. "
+        "Connect Supabase so all submissions go to a shared database.",
+        icon="⚠️",
+    )
 
 # ── Submission form ───────────────────────────────────────────────────────────
 with st.form("vendor_form", clear_on_submit=True):

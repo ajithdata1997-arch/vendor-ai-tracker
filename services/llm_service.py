@@ -1,5 +1,8 @@
 import os
 from groq import Groq
+from dotenv import load_dotenv
+
+load_dotenv(override=True)
 
 
 def _get_secret(key: str, default: str = "") -> str:

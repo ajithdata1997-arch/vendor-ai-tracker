@@ -3,17 +3,23 @@ load_dotenv(override=True)
 
 import streamlit as st
 import pandas as pd
-from services.db_service import init_db, save_vendor, get_all_vendors
+from services.db_service import init_db, save_vendor, get_all_vendors, get_backend
 from services.retrieval_service import RetrievalService
 
 st.set_page_config(page_title="Vendor AI Tracker", page_icon="🤖", layout="wide")
 
 # ── Bootstrap ─────────────────────────────────────────────────────────────────
-try:
+@st.cache_resource
+def _init_db():
     init_db()
+    return get_backend()
+
+try:
+    _backend = _init_db()
     db_ok = True
 except Exception as e:
     db_ok = False
+    _backend = "unknown"
     db_error = str(e)
 
 
@@ -127,6 +133,15 @@ with st.sidebar:
 # ── Main Chat ─────────────────────────────────────────────────────────────────
 st.title("Vendor AI Chatbot")
 st.caption("Submit vendor details or ask questions about stored vendors")
+
+if _backend == "sqlite":
+    st.warning(
+        "**Local database (SQLite) is active.** "
+        "Data is stored only on this machine and is NOT shared with other users. "
+        "To collect vendor details from multiple people, connect Supabase: "
+        "unpause your project at supabase.com and ensure DATABASE_URL is set.",
+        icon="⚠️",
+    )
 
 if not db_ok:
     st.error(
